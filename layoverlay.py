@@ -1,5 +1,5 @@
 import sys, os, pygame as pg
-from evdev import InputDevice, ecodes
+from evdev import InputDevice, list_devices, ecodes
 from select import select
 from pygame._sdl2.video import Renderer, Window, Texture, Image
 
@@ -16,8 +16,8 @@ config should like like this:
 No comments are allowed in config file.''')
 
 
-    device_list = ('/dev/input/event4', '/dev/input/event15')
-    devices = map(InputDevice, ('/dev/input/event4', '/dev/input/event15'))
+    device_list = sorted(list_devices(), key=lambda x: x.lower())
+    devices = map(InputDevice, device_list)
     devices = {dev.fd: dev for dev in devices}
 
     for dev in devices.values(): print(dev)
