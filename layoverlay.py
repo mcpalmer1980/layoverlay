@@ -1,7 +1,11 @@
+#!/bin/python
 import sys, os, pygame as pg
 from evdev import InputDevice, list_devices, ecodes
 from select import select
 from pygame._sdl2.video import Renderer, Window, Texture, Image
+import PySimpleGUI as sg
+from PIL import Image
+from io import BytesIO
 
 
 def scan_codes():
@@ -28,68 +32,94 @@ No comments are allowed in config file.''')
                 if event.type == ecodes.EV_KEY and event.value == 1: # is a key and keydown event
                     print(devices[fd].path, event.code)
 
-def overlay(config):
-    print('Staring')
-    window, renderer, devices, overlays = config_devices(config)
-    clock = pg.time.Clock()
+def window(config):
+    devices, overlays = config_devices(config)
+    delay = 10
+    layout = [[sg.Image('image-alt.png', key='image')]]
+    menu = ['Config', 'Exit']
+    sg.set_options(font=('Arial', 16))
+    window = sg.Window('Overlay', layout, finalize=True, margins=(0,0), no_titlebar=True,
+            alpha_channel=.5, grab_anywhere=True, right_click_menu=menu)
+    window.hide()
     pressed = None
+    pressed_for = 0
 
-    window.minimize()
     while True:
+        sleep = 10 if window._Hidden else 200
+        ev, values = window.read(sleep)
+        if ev in (sg.WIN_CLOSED, "Exit"):
+            break
+        
+        if pressed != None:
+            pressed_for += 1
+            if pressed_for > delay:
+                window.un_hide()
+
         r, w, x = select(devices, [], [])
         for fd in r:
             for event in devices[fd].read():
                 if event.type == ecodes.EV_KEY:
-                    if event.value == 2 and event.code in overlays: # a key was pressed
-                        overlays[event.code].draw()
+                    if event.value == 1 and event.code in overlays: # a key was pressed
+                        pressed_for = 0
                         pressed = event.code
-                        window.restore()
-                        window.show()
-                        window.focus()
+                        window['image'].update(data=overlays[pressed].getvalue())
                     elif event.value == 0 and event.code == pressed:
-                        window.minimize()
-        for ev in pg.event.get():
-            if ev.type == pg.QUIT:
-                terminate()
-        renderer.present()
-        clock.tick(30)
+                        pressed = None
+                        window.hide()
+
+def config_window():
+    buttons = 'Remove', 'Add', 'Start'
+    layout = [
+        [sg.Text('Last Key:', size=12), sg.Text('', key='lastkey')],
+        [sg.Listbox([], size=(60,8))],
+        [sg.Push()] + [sg.Button(b) for b in buttons]]
+    window = sg.Window('Keboard Overlayer', layout, finalize=True)
+
+    while True:
+        event, values = window.read()
+        if event == sg.WIN_CLOSED:
+            break
+        elif event == 'Start':
+            window.close()
+            return True
+    window.close()
+
 
 def config_devices(path):
     overlays = {}
     with open(path) as inp:
         size = inp.readline().split()
-        window, renderer = set_display(size)
         device_list = inp.readline().split()
         for l in [l.strip('\n') for l in inp.readlines() if l]:
             key, image = l.split()
-            texture = Texture.from_surface(renderer, pg.image.load(image))
-            overlays[int(key)] = texture
-    device_list = ('/dev/input/event4', '/dev/input/event15')
+            im = Image.open(image)
+            bio = BytesIO()
+            im.save(bio, format="PNG")
+            overlays[int(key)] = bio
     print(device_list, overlays)
-    devices = map(InputDevice, ('/dev/input/event4', '/dev/input/event15'))
+    devices = map(InputDevice, device_list)
     devices = {dev.fd: dev for dev in devices}
-    texture.draw()
 
-    return window, renderer, devices, overlays
-
-def set_display(size):
-    size = int(size[0]), int(size[1])
-    pg.display.init()   
-    os.environ['SDL_RENDER_SCALE_QUALITY'] = '2'
-    window = Window("Layout Overlay", always_on_top=True, size=size)
-    icon = pg.image.load('icon.png')
-    window.set_icon(icon)
-    renderer = Renderer(window)
-    return window, renderer
+    return devices, overlays
 
 def terminate():
     pg.quit()
     exit()
 
 if __name__ == '__main__':
+    config = 'layoverlay.cfg'
+    while True:
+        if config_window():
+            window(config)
+        else:
+            break
+    exit()
+
+
     if len(sys.argv) == 1:
         scan_codes()
     elif os.path.isfile(sys.argv[1]):
-        overlay(sys.argv[1])
+        window(sys.argv[1])
+        #overlay(sys.argv[1])
     else:
         print('command argument not a config file')
