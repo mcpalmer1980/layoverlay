@@ -37,9 +37,9 @@ def window(config):
     delay = 10
     layout = [[sg.Image('image-alt.png', key='image')]]
     menu = ['Config', 'Exit']
-    sg.set_options(font=('Arial', 16))
     window = sg.Window('Overlay', layout, finalize=True, margins=(0,0), no_titlebar=True,
-            alpha_channel=.5, grab_anywhere=True, right_click_menu=menu)
+            alpha_channel=.8, grab_anywhere=True, right_click_menu=menu,
+            transparent_color=(255,255,255))
     window.hide()
     pressed = None
     pressed_for = 0
@@ -66,22 +66,66 @@ def window(config):
                     elif event.value == 0 and event.code == pressed:
                         pressed = None
                         window.hide()
+    window.close()
 
 def config_window():
+    device_list = sorted(list_devices(), key=lambda x: x.lower())
+    devices = {dev.fd: dev for dev in map(InputDevice, device_list)}
+    devnames = {dev.name: dev for dev in map(InputDevice, device_list)}
+    names = list(devnames.keys())
+    overlays = {}
+    items = list(overlays.keys())
+
+    sg.set_options(font=('Arial', 16))
     buttons = 'Remove', 'Add', 'Start'
     layout = [
+        [sg.Text('Device:', size=12), sg.Combo(names, 'select device', key='device',
+                enable_events=True, readonly=True)],
         [sg.Text('Last Key:', size=12), sg.Text('', key='lastkey')],
-        [sg.Listbox([], size=(60,8))],
-        [sg.Push()] + [sg.Button(b) for b in buttons]]
+        [sg.Listbox(items, size=(60,8), key='list')],
+        [sg.Push()] + [sg.Button(b, key=b) for b in buttons]]
     window = sg.Window('Keboard Overlayer', layout, finalize=True)
+    window['Add'].update(disabled=True)
+    device = code = None
 
     while True:
-        event, values = window.read()
+        event, values = window.read(100)
         if event == sg.WIN_CLOSED:
             break
+        elif event == 'device':            
+            device = devnames[values['device']]
+            print(values['device'], device)
+        elif event == 'Add':
+            results = add_overlay(device.path, str(code))
+            if results:
+                ndev, ncode, nimage = results
+                image_name = os.path.splitext(os.path.split(nimage)[1])[0]
+                desc = f'{ndev} - {ncode} - {image_name}'
+                overlays[desc] = results
+                items.append(desc)
+                window['list'].update(items)
+        elif event == 'Remove':
+            sel = values['list']
+            if sel:
+                items.remove(sel[0])
+                window['list'].update(items)
+                
+
+
         elif event == 'Start':
             window.close()
             return True
+
+        if device:
+            event = device.read_one()
+            
+            if event and event.type == ecodes.EV_KEY and event.value == 1:
+                if not code:
+                    window['Add'].update(disabled=False)
+                code = event.code
+                lastkey = f"{code} - {ecodes.KEY.get(code, '')} {event.type}"
+                window['lastkey'].update(lastkey)
+
     window.close()
 
 
@@ -101,6 +145,23 @@ def config_devices(path):
     devices = {dev.fd: dev for dev in devices}
 
     return devices, overlays
+
+
+def add_overlay(device, code, history=[]):
+    layout = [
+        [sg.Text('Device', size=12), sg.In(device, key='device')],
+        [sg.Text('Code', size=12), sg.In(code, key='code')],
+        [sg.Text('Image', size=12), sg.In('', key='image'), sg.FileBrowse()],
+        [sg.Push(), sg.Button('Cancel'), sg.Button('Add')] ]
+
+    window = sg.Window('Add Overlay', layout, modal=True)
+    while True:
+        event, values = window.read()
+        if event == sg.WIN_CLOSED:
+            break
+        elif event == 'Add':
+            window.close()
+            return values['device'], values['code'], values['image']
 
 def terminate():
     pg.quit()
