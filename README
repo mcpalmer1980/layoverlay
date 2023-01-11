@@ -1,0 +1,23 @@
+This program should display the image of a keyboard overlay while a certain button is being held (shift, alt, etc).
+
+It uses evdev and pygame. The always on top feature of pygame windows isn't working right now so you must add a rule to your window manager.
+I will try to use pysimplegui or some other display module in the near future, and probably a GUI configurator.
+
+SUDO IS REQUIRED FOR EVDEV MODULE TO ACCESS YOUR INPUT DEVICES!!!
+You must install pygame for all users so that you can run the script with sudo.
+sudo pip install pygame
+
+Usage:
+
+sudo python layoverlay.py - this will start a program that displays all button presses and the device that triggers it. Use this information to build your layoverlay.cfg file.
+
+sudo python layoverlay.py config.cfg - load the given config file and start the app in the background. It should popup with an image when you hold a key in your config file, such as the CTRL or ALT button.
+
+YOU MUST CONFIGURE THE PROGRAM TO BE ALWAYS ON TOP IN YOUR WINDOW MANAGER!!!
+
+<layoverlay.cfg>
+    640 480                                 # width, height of window
+    /dev/input/event5 /dev/input/event10    # device1, device2 etc
+    48 image.png                            # scan code, image.file
+    32 image.png                            # scan code, image.file
+No comments are allowed in config file.
