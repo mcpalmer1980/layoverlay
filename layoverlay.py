@@ -1,6 +1,6 @@
 #!/bin/python
 import sys, os, pickle, time
-from evdev import InputDevice, list_devices, ecodes
+from evdev import InputDevice, list_devices, UInput, ecodes as ec
 from select import select
 import PySimpleGUI as sg
 from PIL import Image
@@ -21,6 +21,7 @@ def perf(message=None):
     perf.last = time.perf_counter()
 perf.last = 0
 
+PLAYBACK_KEYS = False # Enable this if the overlay steals keyboard focus on your platform
 
 def overlay_window(devices, overlays, codes):
     delay = 10
@@ -38,6 +39,8 @@ def overlay_window(devices, overlays, codes):
     window.hide()
     pressed = None
     pressed_for = clicked = 0
+    key_hold = []
+    ui = UInput()
 
     while True:
         ev, values = window.read(sleep)
@@ -52,15 +55,29 @@ def overlay_window(devices, overlays, codes):
         r, w, x = select(devices, [], [])
         for fd in r:
             for event in devices[fd].read():
-                if event.type == ecodes.EV_KEY:
-                    if event.value == 1 and event.code in codes[fd]: # a key was pressed
-                        pressed_for = 0
-                        pressed = event.code
-                        key = (devices[fd].path, event.code)
-                        window['image'].update(data=overlays[key].getvalue())
+                if event.type == ec.EV_KEY:
+                    if event.value == 1:
+                        if event.code in codes[fd]: # a key was pressed
+                            pressed_for = 0
+                            pressed = event.code
+                            key = (devices[fd].path, event.code)
+                            window['image'].update(data=overlays[key].getvalue())
+                        elif pressed_for > delay:
+                            # add keys to list
+                            key_hold.append(event.code)
                     elif event.value == 0 and event.code == pressed:
-                        pressed = None
                         window.hide()
+                        if key_hold and PLAYBACK_KEYS: # send keyheld keys
+                            ui.write(ec.EV_KEY, pressed, 1)
+                            for key in key_hold:
+                                ui.write(ec.EV_KEY, key, 1)
+                            for key in key_hold:
+                                ui.write(ec.EV_KEY, key, 0)
+                            ui.write(ec.EV_KEY, pressed, 0)
+                            key_hold.clear()
+                            ui.syn()
+                        pressed = None
+
     options['position'] = window.current_location()
     window.close()
 
@@ -130,6 +147,8 @@ def config_window():
         elif event == 'Remove':
             sel = values['list']
             if sel:
+                options['changed'] = True
+                overlays.pop(sel[0])
                 items.remove(sel[0])
                 window['list'].update(items)
 
@@ -153,11 +172,11 @@ def config_window():
             while True:
                 event = device.read_one()
                 if event:            
-                    if event.type == ecodes.EV_KEY and event.value == 1:
+                    if event.type == ec.EV_KEY and event.value == 1:
                         if not code:
                             window['Add'].update(disabled=False)
                         code = event.code
-                        lastkey = f"{code} - {ecodes.KEY.get(code, '')} {event.type}"
+                        lastkey = f"{code} - {ec.KEY.get(code, '')} {event.type}"
                         window['lastkey'].update(lastkey)
                 else:
                     break
