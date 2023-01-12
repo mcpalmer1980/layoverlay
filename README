@@ -1,6 +1,6 @@
 This program should display the image of a keyboard overlay while a certain button is being held (shift, alt, etc).
 
-It uses evdev, PIL, and PySimpleGUI.
+It uses evdev, PIL, and PySimpleGUI. My own version of PySimpleGUI is included but the official should work as well.
 
 SUDO IS REQUIRED FOR THE EVDEV MODULE TO ACCESS YOUR INPUT DEVICES!!!
 
@@ -24,6 +24,4 @@ Once you start the program you must setup your key and image bindings.
 
 A window should flash onto the screen after a second or two. It will reappear when you hold the bound button long enough. The delay may be changed in the main config window.
 
-EXITING: Press a button to make the overlay popup, right click the the image, and then select Exit.
-
-sudo python layoverlay.py config.cfg - load the given config file and start the app in the background. It should popup with an image when you hold a key in your config file, such as the CTRL or ALT button.
+EXITING: Press a button to make the overlay popup, right click on the image, and then select Exit.
