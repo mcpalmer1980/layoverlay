@@ -1,4 +1,36 @@
 #!/bin/python
+'''
+An application that pops up an image when a bound key is held long enough.
+It includes a configuration window and SUDO password dialog.
+
+________________
+ W I N D O W S |
+================
+def add_overlay_window(device, code, history=[]):
+    Dialog for adding new overlay bindings to the overlay list
+def config_window():
+    Configuration window that makes binding keys easy and allows
+    adjustments to the transparency, popup delay, and image 
+    scaling settings
+def overlay_window(devices, overlays, codes):
+    Popup overlay window that shows a image when a bound keys is held long
+    enough
+
+____________________________________
+# U T I L I T Y  F U N C T I O N S |
+====================================
+def load_options(fn='options.cfg'):
+    Load configuration data using Pickle
+def perf(message=None):
+    Measures time passage between last two calls to Perf()
+def run_process(cmd, sudo=True):
+    Run a process with sudo access priviledges
+def save_options(fn='options.cfg'):
+    Save configuration data using Pickle
+def setup_devices(overlays, scale):
+    Takes a list of overlay bindings, loads the images, and sets up
+    necessary evdev device handlers and data structures.
+'''
 import sys, os, pickle, time
 from evdev import InputDevice, list_devices, UInput, ecodes as ec
 from select import select
@@ -6,6 +38,7 @@ import PySimpleGUI as sg, subprocess as sp
 from PIL import Image
 from io import BytesIO
 
+PLAYBACK_KEYS = False # Enable this if the overlay steals keyboard focus on your platform
 options = dict(
     overlays={},
     delay=40,
@@ -13,104 +46,42 @@ options = dict(
     position=(None, None),
     scale=25 )
 
-# measure performance between 2 points
-def perf(message=None):
-    if message:
-        dif = time.perf_counter()-perf.last
-        print(f'{message}: {dif*1000:0.0f}')
-    perf.last = time.perf_counter()
-perf.last = 0
+# =============
+# W I N D O W S
+def add_overlay_window(device, code, history=[]):
+    '''
+    Window that lets user to add a new overlay binding to the overlay list
+    '''
+    layout = [
+        [sg.Text('Device', size=12), sg.In(device, key='device')],
+        [sg.Text('Code', size=12), sg.In(code, key='code')],
+        [sg.Text('Image', size=12), sg.In('', key='image'), sg.FileBrowse()],
+        [sg.Push(), sg.Button('Cancel'), sg.Button('Add')] ]
 
-PLAYBACK_KEYS = False # Enable this if the overlay steals keyboard focus on your platform
-
-def run_process(cmd, sudo=True):
-    # GET AND VERIFY LINUX SUDO PASSWORD
-    if sudo and sys.platform == 'linux':
-        password = getattr(run_process, 'password', '')
-        if password:
-            cmd = ['sudo', '-kS', '-p', ""] + cmd
-        else:
-            for _ in range(3):
-                results = sg.popup_get_text('Enter your ROOT password',
-                    title='Validation', size=45, password_char='*')
-                if results:
-                    try:
-                        r = sp.run(('sudo', '-vkS'), capture_output=True,
-                                input=(results+'\n').encode(), timeout=1)
-                    except: continue
-                    if not r.returncode:
-                        password = (results + '\n').encode()
-                        run_process.password = password
-                        cmd = ['sudo', '-kS', '-p', ""] + cmd
-                        break
-            else:
-                sudo = False
-
-    # OPEN PROCESS AND SEND PASSWORD
-    outp = []; count = 0
-    p = sp.Popen(cmd, stdin=sp.PIPE)
-    p.communicate(input=password)
-    p.kill()
-
-def overlay_window(devices, overlays, codes):
-    delay = 10
-    image = list(overlays.values())[0] # get first image
-    layout = [[sg.Image(image.getvalue(), key='image')]]
-    menu = ['Config', 'Exit']
-    pos = options['position']
-    alpha = (75*(options['alpha']/100)+25)/100
-    sleep = 50
-    delay = 2000 * (options['delay']/100)
-    delay /= 50
-    window = sg.Window('Overlay', layout, finalize=True, margins=(0,0), no_titlebar=True,
-            alpha_channel=alpha, grab_anywhere=True, right_click_menu=menu,
-            location=pos)
-    window.hide()
-    pressed = None
-    pressed_for = clicked = 0
-    key_hold = []
-    ui = UInput()
-
+    window = sg.Window('Add Overlay', layout, modal=True)
     while True:
-        ev, values = window.read(sleep)
-        if ev in (sg.WIN_CLOSED, 'Exit'):
-            break            
-        
-        if pressed != None:
-            pressed_for += 1
-            if pressed_for > delay:
-                window.un_hide()
-
-        r, w, x = select(devices, [], [])
-        for fd in r:
-            for event in devices[fd].read():
-                if event.type == ec.EV_KEY:
-                    if event.value == 1:
-                        if event.code in codes[fd]: # a key was pressed
-                            pressed_for = 0
-                            pressed = event.code
-                            key = (devices[fd].path, event.code)
-                            window['image'].update(data=overlays[key].getvalue())
-                        elif pressed_for > delay:
-                            # add keys to list
-                            key_hold.append(event.code)
-                    elif event.value == 0 and event.code == pressed:
-                        window.hide()
-                        if key_hold and PLAYBACK_KEYS: # send keyheld keys
-                            ui.write(ec.EV_KEY, pressed, 1)
-                            for key in key_hold:
-                                ui.write(ec.EV_KEY, key, 1)
-                            for key in key_hold:
-                                ui.write(ec.EV_KEY, key, 0)
-                            ui.write(ec.EV_KEY, pressed, 0)
-                            key_hold.clear()
-                            ui.syn()
-                        pressed = None
-
-    options['position'] = window.current_location()
+        event, values = window.read()
+        if event == sg.WIN_CLOSED:
+            break
+        elif event == 'Add':
+            window.close()
+            try:
+                code = int(values['code'])
+                Image.open(values['image'])
+            except:
+                sg.popup_error('Image/Parameter Error')
+                return
+            return values['device'], code, values['image']
+        elif event == 'Cancel':
+            break
     window.close()
 
 def config_window():
+    '''
+    Configuration window that makes binding keys easy and offers
+    adjustments to the transparency, popup delay, and image 
+    scaling.
+    '''
     def update_sliders(window, values, force=False):
         if force or values['scale'] != options['scale']:
             if values:
@@ -192,7 +163,7 @@ def config_window():
             save_options()
             if overlays:
                 window.close()
-                return config_devices(overlays, scale)
+                return setup_devices(overlays, scale)
             else:
                 sg.popup_error('No bindings have been configured!')
                 continue
@@ -211,7 +182,147 @@ def config_window():
                     break
     window.close()
 
-def config_devices(overlays, scale):
+def overlay_window(devices, overlays, codes):
+    '''
+    Popup overlay window that shows a image when a bound keys is held long enough
+    '''
+    delay = 10
+    image = list(overlays.values())[0] # get first image
+    layout = [[sg.Image(image.getvalue(), key='image')]]
+    menu = ['Config', 'Exit']
+    pos = options['position']
+    alpha = (75*(options['alpha']/100)+25)/100
+    sleep = 50
+    delay = 2000 * (options['delay']/100)
+    delay /= 50
+    window = sg.Window('Overlay', layout, finalize=True, margins=(0,0), no_titlebar=True,
+            alpha_channel=alpha, grab_anywhere=True, right_click_menu=menu,
+            location=pos)
+    window.hide()
+    pressed = None
+    pressed_for = clicked = 0
+    key_hold = []
+    ui = UInput()
+
+    while True:
+        ev, values = window.read(sleep)
+        if ev in (sg.WIN_CLOSED, 'Exit'):
+            break            
+        
+        if pressed != None:
+            pressed_for += 1
+            if pressed_for > delay:
+                window.un_hide()
+
+        r, w, x = select(devices, [], [])
+        for fd in r:
+            for event in devices[fd].read():
+                if event.type == ec.EV_KEY:
+                    if event.value == 1:
+                        if event.code in codes[fd]: # a key was pressed
+                            pressed_for = 0
+                            pressed = event.code
+                            key = (devices[fd].path, event.code)
+                            window['image'].update(data=overlays[key].getvalue())
+                        elif pressed_for > delay:
+                            # add keys to list
+                            key_hold.append(event.code)
+                    elif event.value == 0 and event.code == pressed:
+                        window.hide()
+                        if key_hold and PLAYBACK_KEYS: # send keyheld keys
+                            ui.write(ec.EV_KEY, pressed, 1)
+                            for key in key_hold:
+                                ui.write(ec.EV_KEY, key, 1)
+                            for key in key_hold:
+                                ui.write(ec.EV_KEY, key, 0)
+                            ui.write(ec.EV_KEY, pressed, 0)
+                            key_hold.clear()
+                            ui.syn()
+                        pressed = None
+
+    options['position'] = window.current_location()
+    window.close()
+
+
+# ================================
+# U T I L I T Y  F U N C T I O N S
+def load_options(fn='options.cfg'):
+    '''
+    Load configuration data using Pickle
+    '''
+    try:
+        with open(fn, 'rb') as inp:
+            loaded = pickle.load(inp)
+            options.update(loaded)
+    except:
+        print('Error loading options.cfg')
+        if os.path.isfile(fn):
+            os.remove(fn)
+    options['changed'] = False
+    load_options.loaded = options.copy()
+
+def perf(message=None):
+    '''
+    Measures time passage between last two calls to Perf()
+    '''
+    if message:
+        dif = time.perf_counter()-perf.last
+        print(f'{message}: {dif*1000:0.0f}')
+    perf.last = time.perf_counter()
+perf.last = 0
+
+def run_process(cmd, sudo=True):
+    '''
+    Run a process with sudo access priviledges
+    '''
+    # GET AND VERIFY LINUX SUDO PASSWORD
+    if sudo and sys.platform == 'linux':
+        password = getattr(run_process, 'password', '')
+        if password:
+            cmd = ['sudo', '-kS', '-p', ""] + cmd
+        else:
+            for _ in range(3):
+                results = sg.popup_get_text('Enter your ROOT password',
+                    title='Validation', size=45, password_char='*')
+                if results:
+                    try:
+                        r = sp.run(('sudo', '-vkS'), capture_output=True,
+                                input=(results+'\n').encode(), timeout=1)
+                    except: continue
+                    if not r.returncode:
+                        password = (results + '\n').encode()
+                        run_process.password = password
+                        cmd = ['sudo', '-kS', '-p', ""] + cmd
+                        break
+            else:
+                sudo = False
+
+    # OPEN PROCESS AND SEND PASSWORD
+    outp = []; count = 0
+    p = sp.Popen(cmd, stdin=sp.PIPE)
+    p.communicate(input=password)
+    p.kill()
+
+def save_options(fn='options.cfg'):
+    '''
+    Save configuration data using Pickle
+    '''
+    if options != load_options.loaded:
+        print('Options changed: saving')
+        with open(fn, 'wb') as outp:
+            try:
+                pickle.dump(options, outp)
+                outp.close()
+            except:
+                print('Error saving options')
+    else:
+        print('Options unchanged')
+
+def setup_devices(overlays, scale):
+    '''
+    Takes a list of overlay bindings, loads the images, and sets up necessary
+    evdev device handlers and data structures.
+    '''
     def loadimg(path):
         im = Image.open(path)
         im = im.resize( (int(scale * s) for s in im.size), Image.Resampling.LANCZOS )
@@ -236,58 +347,6 @@ def config_devices(overlays, scale):
        codes[dev.fd] = [i[1] for i in overlays if i[0] == path]
     return devices, overlays, codes
 
-
-def add_overlay_window(device, code, history=[]):
-    layout = [
-        [sg.Text('Device', size=12), sg.In(device, key='device')],
-        [sg.Text('Code', size=12), sg.In(code, key='code')],
-        [sg.Text('Image', size=12), sg.In('', key='image'), sg.FileBrowse()],
-        [sg.Push(), sg.Button('Cancel'), sg.Button('Add')] ]
-
-    window = sg.Window('Add Overlay', layout, modal=True)
-    while True:
-        event, values = window.read()
-        if event == sg.WIN_CLOSED:
-            break
-        elif event == 'Add':
-            window.close()
-            try:
-                code = int(values['code'])
-                Image.open(values['image'])
-            except:
-                sg.popup_error('Image/Parameter Error')
-                return
-            return values['device'], code, values['image']
-        elif event == 'Cancel':
-            break
-    window.close()
-
-def terminate():
-    pg.quit()
-    exit()
-
-def load_options(fn='options.cfg'):
-    try:
-        with open(fn, 'rb') as inp:
-            loaded = pickle.load(inp)
-            options.update(loaded)
-    except:
-        print('Error loading options.cfg')
-        if os.path.isfile(fn):
-            os.remove(fn)
-    options['changed'] = False
-    load_options.loaded = options.copy()
-def save_options(fn='options.cfg'):
-    if options != load_options.loaded:
-        print('Options changed: saving')
-        with open(fn, 'wb') as outp:
-            try:
-                pickle.dump(options, outp)
-                outp.close()
-            except:
-                print('Error saving options')
-    else:
-        print('Options unchanged')
 
 if __name__ == '__main__':
     test = list_devices()
