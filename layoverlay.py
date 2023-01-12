@@ -8,7 +8,7 @@ from io import BytesIO
 
 options = dict(
     overlays={},
-    delay=50,
+    delay=40,
     alpha=80,
     position=(None, None),
     scale=25 )
@@ -53,7 +53,7 @@ def overlay_window(devices, overlays, codes):
         for fd in r:
             for event in devices[fd].read():
                 if event.type == ecodes.EV_KEY:
-                    if event.value == 1: # and event.code in codes[fd]: # a key was pressed
+                    if event.value == 1 and event.code in codes[fd]: # a key was pressed
                         pressed_for = 0
                         pressed = event.code
                         key = (devices[fd].path, event.code)
@@ -142,8 +142,12 @@ def config_window():
 
             options['scale'] = values['scale']
             save_options()
-            window.close()
-            return config_devices(overlays, scale)
+            if overlays:
+                window.close()
+                return config_devices(overlays, scale)
+            else:
+                sg.popup_error('No bindings have been configured!')
+                continue
 
         if device:
             while True:
@@ -201,7 +205,7 @@ def add_overlay_window(device, code, history=[]):
             window.close()
             try:
                 code = int(values['code'])
-                PIL.open(values['image'])
+                Image.open(values['image'])
             except:
                 sg.popup_error('Image/Parameter Error')
                 return
