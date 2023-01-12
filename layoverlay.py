@@ -2,7 +2,7 @@
 import sys, os, pickle, time
 from evdev import InputDevice, list_devices, UInput, ecodes as ec
 from select import select
-import PySimpleGUI as sg
+import PySimpleGUI as sg, subprocess as sp
 from PIL import Image
 from io import BytesIO
 
@@ -22,6 +22,35 @@ def perf(message=None):
 perf.last = 0
 
 PLAYBACK_KEYS = False # Enable this if the overlay steals keyboard focus on your platform
+
+def run_process(cmd, sudo=True):
+    # GET AND VERIFY LINUX SUDO PASSWORD
+    if sudo and sys.platform == 'linux':
+        password = getattr(run_process, 'password', '')
+        if password:
+            cmd = ['sudo', '-kS', '-p', ""] + cmd
+        else:
+            for _ in range(3):
+                results = sg.popup_get_text('Enter your ROOT password',
+                    title='Validation', size=45, password_char='*')
+                if results:
+                    try:
+                        r = sp.run(('sudo', '-vkS'), capture_output=True,
+                                input=(results+'\n').encode(), timeout=1)
+                    except: continue
+                    if not r.returncode:
+                        password = (results + '\n').encode()
+                        run_process.password = password
+                        cmd = ['sudo', '-kS', '-p', ""] + cmd
+                        break
+            else:
+                sudo = False
+
+    # OPEN PROCESS AND SEND PASSWORD
+    outp = []; count = 0
+    p = sp.Popen(cmd, stdin=sp.PIPE)
+    p.communicate(input=password)
+    p.kill()
 
 def overlay_window(devices, overlays, codes):
     delay = 10
@@ -261,11 +290,16 @@ def save_options(fn='options.cfg'):
         print('Options unchanged')
 
 if __name__ == '__main__':
-    config = 'layoverlay.cfg'
-    load_options()
-    while True:
-        config = config_window()
-        if config:
-            overlay_window(*config)
-        else:
-            break
+    test = list_devices()
+    if test:
+        config = 'layoverlay.cfg'
+        load_options()
+        while True:
+            config = config_window()
+            if config:
+                overlay_window(*config)
+            else:
+                break
+    else:
+        cmd = ['python', __file__]
+        run_process(cmd)
