@@ -12,6 +12,8 @@ def config_window():
     Configuration window that makes binding keys easy and allows
     adjustments to the transparency, popup delay, and image 
     scaling settings
+def image_browser(path):
+    File browser with image previews
 def overlay_window(devices, overlays, codes):
     Popup overlay window that shows a image when a bound keys is held long
     enough
@@ -19,6 +21,8 @@ def overlay_window(devices, overlays, codes):
 ____________________________________
 # U T I L I T Y  F U N C T I O N S |
 ====================================
+def get_scroller(element):
+    Used by image_browser() to allow selection by spelling filenames
 def load_options(fn='options.cfg'):
     Load configuration data using Pickle
 def perf(message=None):
@@ -204,6 +208,109 @@ def config_window():
                     break
     window.close()
 
+def image_browser(path):
+    '''
+    File browser with image previews
+    '''
+    IMAGE_TYPES = ['.'+x for x in ('png jpg jpeg gif webp').split()]
+    PATH_LENGTH = 40
+    BOX_HEIGHT = 15
+    IMAGE_WIDTH = int(PATH_LENGTH*font[1]*.75)
+
+    def get_listing(path, window=None):
+        folders = []; files = []
+        path = os.path.normpath(path)
+        for f in sorted(os.listdir(path), key=lambda x:x.lower().lstrip('.')):
+            p = os.path.join(path, f)
+            if os.path.isdir(p):
+                folders.append('/'+f)
+            elif os.path.splitext(f)[1] in IMAGE_TYPES:
+                files.append(f)
+
+        p = path
+        parents = [path[-PATH_LENGTH:]]
+        while True:
+            p = os.path.normpath(os.path.join(p, '..'))
+            parents.append(p[-PATH_LENGTH:])
+            if p == os.path.sep:
+                break
+        items = folders+files
+        if window != None:
+            window['List'].update(items)
+            window['PARENTS'].update(parents[0] or '/', values=parents[1:])
+        return items, parents
+        
+    cfont = font[0], font[1]+1
+    items, parents = get_listing(path)
+    llayout = [[sg.Combo(parents[1:], size=PATH_LENGTH, font=cfont,
+                    default_value=parents[0], key='PARENTS',
+                    enable_events=True, readonly=True),
+                sg.Button('?'),
+                sg.Push(), sg.Button('^', key='UP')],
+            [sg.Listbox(items, size = (PATH_LENGTH, BOX_HEIGHT), expand_x=True,
+                    key='List', enable_events=True, bind_return_key=True)],
+            [sg.Push(), sg.Button('Cancel'), sg.Button('Okay')]]
+    rlayout = [[sg.Image(size=(IMAGE_WIDTH, 10), pad=(0,0), expand_y=True, key='IMAGE')]]
+    layout = [[sg.Column(llayout), sg.Column(rlayout)]]
+
+    window = sg.Window('File Chooser', layout, modal=True,
+             return_keyboard_events=True, finalize=True)
+    IMAGE_HEIGHT = int(window.size[1] *.95)
+    IMAGE_SIZE = (IMAGE_WIDTH, IMAGE_HEIGHT)
+    scroller = get_scroller(window['List'])
+    window.bind("<BackSpace>", "UP")
+    while True:
+        window['List'].set_focus()
+        event, values = window.read()
+        if event in (sg.WIN_CLOSED, 'Cancel'):
+            break
+        elif event == 'UP':
+            path = os.path.normpath(os.path.join(path, '..'))
+            items, parents = get_listing(path, window)
+        elif event == 'PARENTS':
+            v = values[event]
+            if v in parents:
+                index = parents.index(v)
+                for _ in range(index):
+                    path = os.path.normpath(os.path.join(path, '..'))
+            else:
+                path = path
+            items, parents = get_listing(path, window)
+        elif event == '?':
+            t = sg.popup_get_text('', title='Enter Path')
+            if t and os.path.isdir(t):
+                path = os.path.normpath(t)
+                items, parents = get_listing(path, window)
+        elif event == 'List':
+            clicked = values[event][0]
+            if clicked.startswith('/'):
+                p = os.path.join(path, values[event][0][1:])
+                if os.path.isdir(p):
+                    path = p
+                    items, parents = get_listing(path, window)
+            elif os.path.splitext(clicked)[1].lower() in IMAGE_TYPES:
+                p = os.path.join(path, clicked)
+                im = Image.open(p)
+                w, h = im.size
+                ratio = min(IMAGE_WIDTH/w, IMAGE_HEIGHT/h)
+                im = im.resize((int(w*ratio), int(h*ratio)), Image.Resampling.LANCZOS)
+                bio = BytesIO()
+                im.save(bio, format="PNG")
+                window['IMAGE'].update(size=IMAGE_SIZE, data=bio.getvalue())
+        #elif event[1] == ':':
+        #    scroller(event, items)
+        elif ':' in event:
+            scroller(event, items)
+            print(event)
+        elif event.startswith('slash:'):
+            scroller('/', items)
+        elif event == 'Okay':
+            if values['List']:
+                window.close()
+                return os.path.join(path, values['List'][0])
+            break
+    window.close()
+
 def overlay_window(devices, overlays, codes):
     '''
     Popup overlay window that shows a image when a bound keys is held long enough
@@ -265,142 +372,57 @@ def overlay_window(devices, overlays, codes):
     options['position'] = window.current_location()
     window.close()
 
-def image_browser(path):
-    '''
-    File browser with image previews
-    '''
-    IMAGE_TYPES = ['.'+x for x in ('png jpg jpeg gif webp').split()]
-    PATH_LENGTH = 40
-    BOX_HEIGHT = 15
-    IMAGE_WIDTH = int(PATH_LENGTH*font[1]*.75)
-
-    def get_listing(path, window=None):
-        folders = []; files = []
-        path = os.path.normpath(path)
-        for f in sorted(os.listdir(path), key=lambda x:x.lower().lstrip('.')):
-            p = os.path.join(path, f)
-            if os.path.isdir(p):
-                folders.append('/'+f)
-            elif os.path.splitext(f)[1] in IMAGE_TYPES:
-                files.append(f)
-
-        p = path
-        parents = [path[-PATH_LENGTH:]]
-        while True:
-            p = os.path.normpath(os.path.join(p, '..'))
-            parents.append(p[-PATH_LENGTH:])
-            if p == os.path.sep:
-                break
-        items = folders+files
-        if window != None:
-            window['List'].update(items)
-            window['PARENTS'].update(parents[0] or '/', values=parents[1:])
-        return items, parents
-        
-    cfont = font[0], font[1]+1
-    items, parents = get_listing(path)
-    llayout = [[sg.Combo(parents[1:], size=PATH_LENGTH, font=cfont,
-                    default_value=parents[0], key='PARENTS',
-                    enable_events=True, readonly=True),
-                sg.Button('?'),
-                sg.Push(), sg.Button('^', key='UP')],
-            [sg.Listbox(items, size = (PATH_LENGTH, BOX_HEIGHT), expand_x=True,
-                    key='List', enable_events=True, bind_return_key=True)],
-            [sg.Push(), sg.Button('Cancel'), sg.Button('Okay')]]
-    rlayout = [[sg.Image(size=(IMAGE_WIDTH, 10), pad=(0,0), expand_y=True, key='IMAGE')]]
-    layout = [[sg.Column(llayout), sg.Column(rlayout)]]
-
-    window = sg.Window('File Chooser', layout, modal=True,
-             return_keyboard_events=True, finalize=True)
-    IMAGE_HEIGHT = int(window.size[1] *.95)
-    IMAGE_SIZE = (IMAGE_WIDTH, IMAGE_HEIGHT)
-    scroller = get_scroller(window['List'])
-    window.bind("<BackSpace>", "UP")
-    while True:
-        event, values = window.read()
-        if event in (sg.WIN_CLOSED, 'Cancel'):
-            break
-        elif event == 'UP':
-            path = os.path.normpath(os.path.join(path, '..'))
-            items, parents = get_listing(path, window)
-        elif event == 'PARENTS':
-            v = values[event]
-            if v in parents:
-                index = parents.index(v)
-                for _ in range(index):
-                    path = os.path.normpath(os.path.join(path, '..'))
-            else:
-                path = path
-            items, parents = get_listing(path, window)
-        elif event == '?':
-            t = sg.popup_get_text('', title='Enter Path')
-            if t and os.path.isdir(t):
-                path = os.path.normpath(t)
-                items, parents = get_listing(path, window)
-        elif event == 'List':
-            clicked = values[event][0]
-            if clicked.startswith('/'):
-                p = os.path.join(path, values[event][0][1:])
-                if os.path.isdir(p):
-                    path = p
-                    items, parents = get_listing(path, window)
-            elif os.path.splitext(clicked)[1].lower() in IMAGE_TYPES:
-                p = os.path.join(path, clicked)
-                im = Image.open(p)
-                w, h = im.size
-                ratio = min(IMAGE_WIDTH/w, IMAGE_HEIGHT/h)
-                im = im.resize((int(w*ratio), int(h*ratio)), Image.Resampling.LANCZOS)
-                bio = BytesIO()
-                im.save(bio, format="PNG")
-                window['IMAGE'].update(size=IMAGE_SIZE, data=bio.getvalue())
-        elif event[1] == ':':
-            scroller(event[0], items)
-        elif event.startswith('slash:'):
-            scroller('/', items)
-        elif event == 'Okay':
-            if values['List']:
-                window.close()
-                return os.path.join(path, values['List'][0])
-            break
-    window.close()
-
+# ================================
+# U T I L I T Y  F U N C T I O N S
 def get_scroller(element):
     '''
     Used by image_browser() to allow selection by spelling filenames
     '''
-    def scroll_to_index(key, data, col=None):
+    def scroll_to_index(event, data, col=None):
         nonlocal last_press, keys_pressed
         if not data:
             return
-        c = key.lower()
-        ti = time.perf_counter()
-        if ti - last_press < Key_DELAY:
-            keys_pressed += c
+        key = event.split(':')[0]
+        print(key, end=', ')
+        if event[1] == ':' or key in keys:
+            c = keys.get(key, key).lower()
+            print(c, end=', ')
+            ti = time.perf_counter()
+            if ti - last_press < Key_DELAY:
+                keys_pressed += c
+            else:
+                keys_pressed = c
+            print(keys_pressed)
+            last_press = ti
+            if col == None:
+                for i, item in enumerate(data):
+                    if keys_pressed < item.lower():
+                        break
+            else:
+                for i, row in enumerate(data):
+                    if keys_pressed < row[col].lower():
+                        break
         else:
-            keys_pressed = c
-        last_press = ti
-        if col == None:
-            for i, item in enumerate(data):
-                if keys_pressed < item.lower():
-                    break
-        else:
-            for i, row in enumerate(data):
-                if keys_pressed < row[col].lower():
-                    break
-        perc = i / len(data)
+            key = event.split(':')[0]
+            i = (element.get_indexes() or [0])[0]
+            if key == 'Up':
+                i = (i - 1) % len(data)
+            elif key == 'Down':
+                i = (i + 1) % len(data)
+
+        perc = (i - element.Size[1]//2) / len(data)
+        print(element.Size, perc)
         element.set_vscroll_position(perc)
         if isinstance(element, sg.Table):
             element.update(select_rows=[i])
         elif isinstance(element, sg.Listbox):
-            #element.set_value(i)
             element.update(set_to_index=i)
+    keys = {'slash': '/'}
     Key_DELAY = 1
     keys_pressed = ''
     last_press = 0
     return scroll_to_index
 
-# ================================
-# U T I L I T Y  F U N C T I O N S
 def load_options(fn='options.cfg'):
     '''
     Load configuration data using Pickle
