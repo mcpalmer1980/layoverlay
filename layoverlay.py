@@ -114,11 +114,12 @@ def config_window():
     items = list(overlays.keys())
     
     # find name of last selected device if it exists
-    name = None
+    device = code = name = None
     if options['last_device']:
         for name in devnames:
             if options['last_device'] == devnames[name].path:
                 selected = name
+                device = devnames[selected]
                 break
 
     # configure and display window
@@ -143,7 +144,6 @@ def config_window():
     window = sg.Window('Keyboard Overlayer', layout, finalize=True)
     update_sliders(window, None, True)
     window['Add'].update(disabled=True)
-    device = code = None
 
     # handle window events
     while True:
@@ -187,6 +187,8 @@ def config_window():
             else:
                 sg.popup_error('No bindings have been configured!')
                 continue
+
+        # handle keyboard events
         if device:
             while True:
                 event = device.read_one()
@@ -195,7 +197,7 @@ def config_window():
                         if not code:
                             window['Add'].update(disabled=False)
                         code = event.code
-                        lastkey = f"{code} - {ec.KEY.get(code, '')} {event.type}"
+                        lastkey = f"{code} - {ec.KEY.get(code, '')}"
                         window['lastkey'].update(lastkey)
                 else:
                     break
