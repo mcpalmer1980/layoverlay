@@ -38,12 +38,15 @@ import PySimpleGUI as sg, subprocess as sp
 from PIL import Image
 from io import BytesIO
 
+font = ('Arial', 15)
 PLAYBACK_KEYS = False # Enable this if the overlay steals keyboard focus on your platform
 options = dict(
     overlays={},
     delay=40,
     alpha=80,
     position=(None, None),
+    last_folder=None,
+    last_device=None,
     scale=25 )
 
 # =============
@@ -55,7 +58,7 @@ def add_overlay_window(device, code, history=[]):
     layout = [
         [sg.Text('Device', size=12), sg.In(device, key='device')],
         [sg.Text('Code', size=12), sg.In(code, key='code')],
-        [sg.Text('Image', size=12), sg.In('', key='image'), sg.FileBrowse()],
+        [sg.Text('Image', size=12), sg.In('', key='image'), sg.Button('Browse')],
         [sg.Push(), sg.Button('Cancel'), sg.Button('Add')] ]
 
     window = sg.Window('Add Overlay', layout, modal=True)
@@ -72,6 +75,12 @@ def add_overlay_window(device, code, history=[]):
                 sg.popup_error('Image/Parameter Error')
                 return
             return values['device'], code, values['image']
+        elif event == 'Browse':
+            results = image_browser(options['last_folder']
+                    or os.path.split(__file__)[0])
+            if results:
+                window['image'].update(results)
+                options['last_folder'] = os.path.split(results)[0]
         elif event == 'Cancel':
             break
     window.close()
@@ -82,6 +91,7 @@ def config_window():
     adjustments to the transparency, popup delay, and image 
     scaling.
     '''
+    # update text values for scale and delay sliders
     def update_sliders(window, values, force=False):
         if force or values['scale'] != options['scale']:
             if values:
@@ -95,18 +105,28 @@ def config_window():
             delay = 2000 * (options['delay']/100)
             window['delaytxt'].update(f'{delay:0.0f}ms')
 
+    # get device list and create data structures
     device_list = sorted(list_devices(), key=lambda x: x.lower())
     devices = {dev.fd: dev for dev in map(InputDevice, device_list)}
     devnames = {dev.name: dev for dev in map(InputDevice, device_list)}
     names = sorted(list(devnames.keys()), key=lambda x: x.lower())
     overlays = options['overlays']
     items = list(overlays.keys())
+    
+    # find name of last selected device if it exists
+    name = None
+    if options['last_device']:
+        for name in devnames:
+            if options['last_device'] == devnames[name].path:
+                selected = name
+                break
 
+    # configure and display window
     sg.set_options(font=('Arial', 16))
     sg.theme('BlueMono')
     buttons = 'Remove', 'Add'
     layout = [
-        [sg.Text('Device:', size=12), sg.Combo(names, 'select device', key='device',
+        [sg.Text('Device:', size=12), sg.Combo(names, name or 'select device', key='device',
                 enable_events=True, readonly=True)],
         [sg.Text('Last Key:', size=12), sg.Text('', key='lastkey')],
         [sg.Listbox(items, size=(60,8), key='list')],
@@ -125,6 +145,7 @@ def config_window():
     window['Add'].update(disabled=True)
     device = code = None
 
+    # handle window events
     while True:
         event, values = window.read(100)
         if event == sg.WIN_CLOSED:
@@ -133,6 +154,7 @@ def config_window():
             update_sliders(window, values)
         elif event == 'device':            
             device = devnames[values['device']]
+            options['last_device'] = device.path
             window['lastkey'].update('press a key')
         elif event == 'Add':
             results = add_overlay_window(device.path, str(code))
@@ -151,14 +173,12 @@ def config_window():
                 overlays.pop(sel[0])
                 items.remove(sel[0])
                 window['list'].update(items)
-
         elif event == 'Start':
             options['alpha'] = values['alpha']
             options['delay'] = values['delay']
             options['overlays'] = overlays
             scale = 4 * (options['scale']/100)
             if abs(scale-1) < .15: scale = 1
-
             options['scale'] = values['scale']
             save_options()
             if overlays:
@@ -167,7 +187,6 @@ def config_window():
             else:
                 sg.popup_error('No bindings have been configured!')
                 continue
-
         if device:
             while True:
                 event = device.read_one()
@@ -243,6 +262,139 @@ def overlay_window(devices, overlays, codes):
     options['position'] = window.current_location()
     window.close()
 
+def image_browser(path):
+    '''
+    File browser with image previews
+    '''
+    IMAGE_TYPES = ['.'+x for x in ('png jpg jpeg gif webp').split()]
+    PATH_LENGTH = 40
+    BOX_HEIGHT = 15
+    IMAGE_WIDTH = int(PATH_LENGTH*font[1]*.75)
+
+    def get_listing(path, window=None):
+        folders = []; files = []
+        path = os.path.normpath(path)
+        for f in sorted(os.listdir(path), key=lambda x:x.lower().lstrip('.')):
+            p = os.path.join(path, f)
+            if os.path.isdir(p):
+                folders.append('/'+f)
+            elif os.path.splitext(f)[1] in IMAGE_TYPES:
+                files.append(f)
+
+        p = path
+        parents = [path[-PATH_LENGTH:]]
+        while True:
+            p = os.path.normpath(os.path.join(p, '..'))
+            parents.append(p[-PATH_LENGTH:])
+            if p == os.path.sep:
+                break
+        items = folders+files
+        if window != None:
+            window['List'].update(items)
+            window['PARENTS'].update(parents[0] or '/', values=parents[1:])
+        return items, parents
+        
+    cfont = font[0], font[1]+1
+    items, parents = get_listing(path)
+    llayout = [[sg.Combo(parents[1:], size=PATH_LENGTH, font=cfont,
+                    default_value=parents[0], key='PARENTS',
+                    enable_events=True, readonly=True),
+                sg.Button('?'),
+                sg.Push(), sg.Button('^', key='UP')],
+            [sg.Listbox(items, size = (PATH_LENGTH, BOX_HEIGHT), expand_x=True,
+                    key='List', enable_events=True, bind_return_key=True)],
+            [sg.Push(), sg.Button('Cancel'), sg.Button('Okay')]]
+    rlayout = [[sg.Image(size=(IMAGE_WIDTH, 10), pad=(0,0), expand_y=True, key='IMAGE')]]
+    layout = [[sg.Column(llayout), sg.Column(rlayout)]]
+
+    window = sg.Window('File Chooser', layout, modal=True,
+             return_keyboard_events=True, finalize=True)
+    IMAGE_HEIGHT = int(window.size[1] *.95)
+    IMAGE_SIZE = (IMAGE_WIDTH, IMAGE_HEIGHT)
+    scroller = get_scroller(window['List'])
+    window.bind("<BackSpace>", "UP")
+    while True:
+        event, values = window.read()
+        if event in (sg.WIN_CLOSED, 'Cancel'):
+            break
+        elif event == 'UP':
+            path = os.path.normpath(os.path.join(path, '..'))
+            items, parents = get_listing(path, window)
+        elif event == 'PARENTS':
+            v = values[event]
+            if v in parents:
+                index = parents.index(v)
+                for _ in range(index):
+                    path = os.path.normpath(os.path.join(path, '..'))
+            else:
+                path = path
+            items, parents = get_listing(path, window)
+        elif event == '?':
+            t = sg.popup_get_text('', title='Enter Path')
+            if t and os.path.isdir(t):
+                path = os.path.normpath(t)
+                items, parents = get_listing(path, window)
+        elif event == 'List':
+            clicked = values[event][0]
+            if clicked.startswith('/'):
+                p = os.path.join(path, values[event][0][1:])
+                if os.path.isdir(p):
+                    path = p
+                    items, parents = get_listing(path, window)
+            elif os.path.splitext(clicked)[1].lower() in IMAGE_TYPES:
+                p = os.path.join(path, clicked)
+                im = Image.open(p)
+                w, h = im.size
+                ratio = min(IMAGE_WIDTH/w, IMAGE_HEIGHT/h)
+                im = im.resize((int(w*ratio), int(h*ratio)), Image.Resampling.LANCZOS)
+                bio = BytesIO()
+                im.save(bio, format="PNG")
+                window['IMAGE'].update(size=IMAGE_SIZE, data=bio.getvalue())
+        elif event[1] == ':':
+            scroller(event[0], items)
+        elif event.startswith('slash:'):
+            scroller('/', items)
+        elif event == 'Okay':
+            if values['List']:
+                window.close()
+                return values['List'][0]
+            break
+    window.close()
+
+def get_scroller(element):
+    '''
+    Used by image_browser() to allow selection by spelling filenames
+    '''
+    def scroll_to_index(key, data, col=None):
+        nonlocal last_press, keys_pressed
+        if not data:
+            return
+        c = key.lower()
+        ti = time.perf_counter()
+        if ti - last_press < Key_DELAY:
+            keys_pressed += c
+        else:
+            keys_pressed = c
+        last_press = ti
+        if col == None:
+            for i, item in enumerate(data):
+                if keys_pressed < item.lower():
+                    break
+        else:
+            for i, row in enumerate(data):
+                if keys_pressed < row[col].lower():
+                    break
+        perc = i / len(data)
+        element.set_vscroll_position(perc)
+        if isinstance(element, sg.Table):
+            element.update(select_rows=[i])
+        elif isinstance(element, sg.Listbox):
+            #element.set_value(i)
+            element.update(set_to_index=i)
+    Key_DELAY = 1
+    keys_pressed = ''
+    last_press = 0
+    return scroll_to_index
 
 # ================================
 # U T I L I T Y  F U N C T I O N S
