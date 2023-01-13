@@ -74,8 +74,8 @@ def add_overlay_window(device, code, history=[]):
             try:
                 code = int(values['code'])
                 Image.open(values['image'])
-            except:
-                sg.popup_error('Image/Parameter Error')
+            except Exception as e:
+                sg.popup_error(f'Image/Parameter Error\n{e}')
                 return
             return values['device'], code, values['image']
         elif event == 'Browse':
@@ -360,7 +360,7 @@ def image_browser(path):
         elif event == 'Okay':
             if values['List']:
                 window.close()
-                return values['List'][0]
+                return os.path.join(path, values['List'][0])
             break
     window.close()
 
