@@ -4,6 +4,8 @@ This program displays overlay images while a certain buttons are being held (shi
 
 It uses evdev, PIL, and PySimpleGUI. My own version of PySimpleGUI is included but the official version should work as well.
 
+![text](screenshot.png)
+
 ### SUDO IS REQUIRED FOR THE EVDEV MODULE TO ACCESS YOUR INPUT DEVICES!!!
 
 You must install PIL(pillow) and EVDEV for all users so that you can run the script with sudo.
